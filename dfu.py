@@ -204,7 +204,10 @@ class BleDfuServer(object):
 				print "[scan_and_connect] Error: Connection timeout 3"
 				return False
 
-				
+                ctrlpt_cccd_handle_buttonless, reset_handle = getDFUControlPointHandle(self.ble_conn, UUID.CCCD)
+                self.ctrlpt_cccd_handle_buttonless = int(ctrlpt_cccd_handle_buttonless, 16)
+                self.reset_handle = int(reset_handle, 16)
+     			
 		debug_msg("END scan_and_connect")
 		return True        
     """
@@ -667,22 +670,23 @@ class BleDfuServer(object):
     def _check_DFU_mode(self):
 		print "Checking DFU State..."
 		res=False
+                self.ble_conn.before = ""
+                self.ble_conn.buffer = ""
 		self.ble_conn.sendline('char-read-uuid %s' % UUID.DFU_Version)
 		
-		#Skip two rows		
+		
 		try:
-			res = self.ble_conn.expect('handle:', timeout=10)
-			res = self.ble_conn.expect('handle:', timeout=0.1)
+                       res=self.ble_conn.expect('value: .*? \r\n')
+				
 		except pexpect.TIMEOUT, e:
 			#print "[ERROR]_check_DFU_mode: State timeout"
 			pass
 		except:
 			pass
-		
-		msg_ret = self.ble_conn.before
-		msg_ret = self.ble_conn.before
-		debug_msg(msg_ret)
-		
+
+		msg_ret = self.ble_conn.after
+                debug_msg(msg_ret)
+
 		if msg_ret.find("value: 08 00")!=-1:		
 			res=True
 			print "Board already in DFU mode"
@@ -704,6 +708,35 @@ class BleDfuServer(object):
         print "*****OK*****"
         self.ble_conn.close()
         
+
+
+def getDFUControlPointHandle(ble_connection, uuid):
+    ble_connection.before = ""
+    ble_connection.sendline('char-desc')
+
+    found = False
+    while not found:
+        try:
+            ble_connection.expect([uuid], timeout = 3)
+
+            #check if the given descriptor belongs to DFU_Control_Point characterist
+            found = re.findall(UUID.DFU_Control_Point, ble_connection.before)
+            if len(found) != 0 :
+                found = True
+
+        except pexpect.TIMEOUT, e:
+            debug_msg("[ERROR] DFU service not found")
+            sys.exit(1)
+
+    handles = re.findall(r"handle: 0x..(..)", ble_connection.before)
+    ble_connection.before = ""
+    ble_connection.buffer = ""
+
+    if len(handles) > 1:
+        return handles[-1], handles[-2]
+    else:
+        return 0, 0
+
         
 def getHandle(ble_connection, uuid):
     print "getHandle " + uuid
